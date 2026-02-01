@@ -1,0 +1,199 @@
+# ============================================================================
+# Docker Compose de Desarrollo - MCP Hub
+# ============================================================================
+# Autor: Equipo Ainsophic
+# Enfoque: Experiencia de desarrollo ágil con hot-reload
+#
+# CONCEPTO FEYNMAN - Desarrollo con Volúmenes:
+# ------------------------------------------------
+# Imagina que estás editando un documento en tu computadora y
+# quieres ver los cambios en tiempo real en una pantalla grande.
+#
+# ¿Sin volúmenes?
+# ================
+# 1. Cambias un archivo en tu computadora
+# 2. Reconstruyes la imagen Docker (5 minutos)
+# 3. Detienes el contenedor antiguo
+# 4. Inicias el nuevo contenedor
+# 5. Vas al navegador a ver el cambio
+#
+# ¿Con volúmenes?
+# ===============
+# 1. Cambias un archivo en tu computadora
+# 2. El contenedor ve el cambio INMEDIATAMENTE (el archivo está montado)
+# 3. Uvicorn detecta el cambio y recarga solo la parte afectada
+# 4. Ves el cambio en el navegador en segundos
+#
+# RESULTADO: Ciclo de desarrollo 100x más rápido.
+# ============================================================================
+
+version: '3.8'
+
+services:
+    # --------------------------------------------------------------------------
+    # SERVICIO: MCP Hub de Desarrollo
+    # --------------------------------------------------------------------------
+    # Diferencias principales con docker-compose.yml (producción):
+    # 1. Usa Dockerfile.dev (con herramientas de desarrollo)
+    # 2. Monta código fuente como volumen (para hot-reload)
+    # 3. No usa usuario no-root (para facilitar debugging)
+    # 4. Usa comando con --reload de uvicorn
+    # --------------------------------------------------------------------------
+    mcp-hub:
+        build:
+            context: .
+            dockerfile: Dockerfile.dev
+            # Usa Dockerfile.dev que tiene herramientas de desarrollo
+        
+        container_name: mcp-hub-dev
+        image: mcp-hub:dev
+        # Etiqueta :dev indica que es versión de desarrollo
+        
+        restart: on-failure
+        # ----------------------------------------------------------------------
+        # on-failure: Solo reiniciar si falla con código de error
+        # ----------------------------------------------------------------------
+        # ¿POR QUÉ on-failure EN LUGAR DE unless-stopped?
+        # =====================================================
+        # En desarrollo:
+        # - Queremos que el contenedor se detenga si hay errores de sintaxis
+        #   (para ver el error en consola y corregirlo)
+        # - NO queremos que se reinicie automáticamente si el desarrollador
+        #   lo detiene intencionalmente para cambiar código
+        # ----------------------------------------------------------------------
+        
+        ports:
+            - "8080:8080"  # API REST
+            - "8000:8000"  # Protocolo MCP
+            - "8081:8081"  # Gateway WebSocket
+        
+        volumes:
+            # ----------------------------------------------------------------------
+            # VOLUMEN DE CÓDIGO FUENTE - EL SECRETO DEL HOT-RELOAD
+            # ----------------------------------------------------------------------
+            # ----------------------------------------------------------------------
+            # ¿QUÉ ESTÁ PASANDO AQUÍ?
+            # ========================
+            # ./src:/app/src:ro
+            # - ./src: Tu directorio src en la computadora
+            # - /app/src: Directorio dentro del contenedor
+            # - ro: Read-only (la app solo lee el código, no lo escribe)
+            #
+            # RESULTADO:
+            # =========
+            # Los archivos ./src en tu computadora son LOS MISMOS
+            # que /app/src en el contenedor. No hay copia, es el
+            # mismo sistema de archivos.
+            #
+            # CAMBIO EL EFECTO:
+            # ==================
+            # Tú: Cambias src/mcp_hub/main.py en tu editor
+            # 1. Guardas el archivo (Ctrl+S)
+            # 2. El contenedor VE el cambio inmediatamente (está montado)
+            # 3. Uvicorn (--reload) detecta el cambio en /app/src
+            # 4. Uvicorn recarga solo el módulo modificado
+            # 5. Tú ves el cambio en el navegador en segundos
+            #
+            # ¿POR QUÉ READ-ONLY (RO)?
+            # ============================
+            # - La aplicación SOLO necesita leer el código
+            # - Prevenir bugs que escriban en el código
+            # - Mayor claridad de propósito
+            # ----------------------------------------------------------------------
+            - ./src:/app/src:ro
+            
+            # ----------------------------------------------------------------------
+            # VOLUMEN DE CONFIGURACIÓN - Para cambios en tiempo real
+            # ----------------------------------------------------------------------
+            - ./config:/app/config:ro
+            
+            # ----------------------------------------------------------------------
+            # VOLUMEN DE TESTS - Para ejecutar tests desde el contenedor
+            # ----------------------------------------------------------------------
+            - ./tests:/app/tests:ro
+            
+            # ----------------------------------------------------------------------
+            # VOLUMEN DE DATOS - Persistencia de desarrollo
+            # ----------------------------------------------------------------------
+            - mcp-hub-dev-data:/app/data
+        
+        environment:
+            # ----------------------------------------------------------------------
+            # Variables de entorno de desarrollo
+            # ----------------------------------------------------------------------
+            - MCP_HUB_CONFIG=/app/config/servers.json
+            - MCP_HUB_PLUGINS_DIR=/app/plugins
+            - LOG_LEVEL=DEBUG
+            # ----------------------------------------------------------------------
+            # ¿POR QUÉ DEBUG EN DESARROLLO?
+            # =================================
+            # - Más logs verbosos para debugging
+            # - Muestra stack traces completos
+            # - No filtra información de depuración
+            # ----------------------------------------------------------------------
+        
+        networks:
+            - mcp-hub-dev-network
+        
+        # ----------------------------------------------------------------------
+        # COMANDO DE ENTRADA - CON HOT-RELOAD
+        # ----------------------------------------------------------------------
+        # El comando --reload de uvicorn hace la magia del hot-reload:
+        # - Vigila archivos Python
+        # - Detecta cambios
+        # - Recarga solo módulos modificados
+        # - Mantiene estado del servidor (no pierde conexiones activas)
+        # ----------------------------------------------------------------------
+        command: uvicorn mcp_hub.main:app --host 0.0.0.0 --port 8080 --reload
+
+    # --------------------------------------------------------------------------
+    # SERVICIO: PostgreSQL de Desarrollo (Opcional - Perfil postgres)
+    # --------------------------------------------------------------------------
+    postgres:
+        container_name: mcp-hub-postgres-dev
+        image: postgres:16-alpine
+        restart: unless-stopped
+        
+        ports:
+            - "5432:5432"
+        
+        environment:
+            # ----------------------------------------------------------------------
+            # Credenciales de desarrollo (hardcodeadas por simplicidad)
+            # ----------------------------------------------------------------------
+            - POSTGRES_USER=devuser
+            - POSTGRES_PASSWORD=devpassword
+            - POSTGRES_DB=devdb
+        
+        volumes:
+            - postgres-dev-data:/var/lib/postgresql/data
+        
+        networks:
+            - mcp-hub-dev-network
+        
+        profiles:
+            - postgres
+
+# ----------------------------------------------------------------------------
+# VOLÚMENES DE DESARROLLO
+# ----------------------------------------------------------------------------
+volumes:
+    mcp-hub-dev-data:
+        driver: local
+    
+    postgres-dev-data:
+        driver: local
+
+# ----------------------------------------------------------------------------
+# RED DE DESARROLLO
+# ----------------------------------------------------------------------------
+networks:
+    mcp-hub-dev-network:
+        driver: bridge
+        # Red separada de producción para evitar conflictos
+        ipam:
+            driver: default
+            config:
+                - subnet: 172.29.0.0/16
+                    # Subred diferente de producción (172.28.0.0/16)
+                    # Previene conflictos de IPs si ambos corren

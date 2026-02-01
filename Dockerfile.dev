@@ -1,0 +1,111 @@
+# ============================================================================
+# Dockerfile de Desarrollo - MCP Hub
+# ============================================================================
+# Autor: Equipo Ainsophic
+# Enfoque: Experiencia de desarrollo ágil con hot-reload
+#
+# CONCEPTO FEYNMAN - Hot Reload:
+# --------------------------------
+# Imagina que estás escribiendo un libro con tinta invisible que
+# aparece instantáneamente en el papel. No necesitas imprimir una
+# nueva copia cada vez que cambias una palabra.
+#
+# El hot-reload en desarrollo hace esto con el código:
+# - Cambias un archivo en tu computadora
+# - Uvicorn detecta el cambio automáticamente
+# - Reinicia solo la parte afectada (no toda la aplicación)
+# - Ves los cambios en segundos, no minutos
+#
+# RESULTADO: Ciclo de desarrollo ultra rápido, sin frustraciones.
+# ============================================================================
+
+# Imagen base: Python 3.11 slim (ligera y oficial)
+# ----------------------------------------------------------------------
+# Por qué slim:
+# - Contiene Python y herramientas esenciales
+# - Mucho más pequeña que la imagen completa (alrededor de 100MB vs 1GB)
+# - Incluye apt-get para instalar herramientas de desarrollo
+# ----------------------------------------------------------------------
+FROM python:3.11-slim
+
+# Variables de entorno para desarrollo
+# ----------------------------------------------------------------------
+# Las mismas que en producción, pero añadimos configuraciones de desarrollo
+# ----------------------------------------------------------------------
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Instalar dependencias de sistema para desarrollo
+# ----------------------------------------------------------------------
+# ¿POR QUÉ GIT?
+# ===============
+# Aunque git no es esencial para ejecutar la aplicación,
+# es muy útil para:
+# - Clonar repositorios de plugins
+# - Verificar versiones dentro del contenedor
+# - Debugging y troubleshooting
+#
+# GCC/G++ se mantienen porque en desarrollo podemos necesitar
+# instalar paquetes Python que requieren compilación.
+# ----------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Directorio de trabajo
+# ----------------------------------------------------------------------
+# /app es el estándar de facto para aplicaciones Python en contenedores
+# ----------------------------------------------------------------------
+WORKDIR /app
+
+# Copiar archivos de dependencias
+# ----------------------------------------------------------------------
+# Copiamos ambos requirements.txt porque en desarrollo
+# pueden necesitar herramientas adicionales de testing.
+# ----------------------------------------------------------------------
+COPY requirements.txt requirements-dev.txt .
+
+# Actualizar pip e instalar dependencias
+# ----------------------------------------------------------------------
+# -r requirements-dev.txt: Incluye dependencias de desarrollo
+# (pytest, black, ruff, mypy, etc.)
+# ----------------------------------------------------------------------
+RUN pip install --upgrade pip && \
+    pip install -r requirements-dev.txt
+
+# Copiar código fuente de la aplicación
+# ----------------------------------------------------------------------
+# En desarrollo, copiamos TODO el código fuente directamente.
+# Usaremos volúmenes para montar el código local, permitiendo
+# modificaciones en tiempo real sin reconstruir el contenedor.
+# ----------------------------------------------------------------------
+COPY src/ ./src/
+COPY config/ ./config/
+
+# Exponer puertos (iguales a producción)
+# ----------------------------------------------------------------------
+# Mantenemos consistencia con los puertos de producción para evitar
+# confusiones al cambiar entre entornos.
+# ----------------------------------------------------------------------
+EXPOSE 8080 8000 8081
+
+# Comando de entrada con hot-reload activado
+# ----------------------------------------------------------------------
+# --reload: Vigilar archivos y recargar automáticamente
+# --host 0.0.0.0: Escuchar en todas las interfaces (no solo localhost)
+# --port 8080: Puerto para la API REST
+#
+# ¿POR QUÉ USAR UVICORN DIRECTAMENTE?
+# ====================================
+# En producción usamos el comando python -m mcp_hub.main que inicia
+# uvicorn con configuraciones de producción.
+#
+# En desarrollo:
+# - Usamos uvicorn directamente con --reload
+# - Más simple y directo
+# - Mejor feedback en consola
+# - No hay necesidad de manejar configuraciones complejas
+# ----------------------------------------------------------------------
+CMD ["uvicorn", "mcp_hub.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]

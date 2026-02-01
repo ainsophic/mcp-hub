@@ -1,0 +1,294 @@
+# ============================================================================
+# Docker Compose de Producción - MCP Hub
+# ============================================================================
+# Autor: Equipo Ainsophic
+# Enfoque: Despliegue de producción optimizado
+#
+# CONCEPTO FEYNMAN - Producción vs Desarrollo:
+# -------------------------------------------------
+# Imagina dos coches:
+# 1. De desarrollo: Tiene airbags, sensores, asistentes, pero es lento
+# 2. De producción: Sin distracciones, máximo rendimiento, pero más delicado
+#
+# El compose de producción:
+# - Tiene límites de recursos (CPU, memoria)
+# - Tiene health checks más estrictos
+# - Tiene volúmenes para persistencia
+# - Tiene políticas de seguridad más duras
+#
+# RESULTADO: Máximo rendimiento y confiabilidad para usuarios reales.
+# ============================================================================
+
+version: '3.8'
+
+services:
+    # --------------------------------------------------------------------------
+    # SERVICIO: MCP Hub de Producción
+    # --------------------------------------------------------------------------
+    mcp-hub:
+        image: mcp-hub:0.1.0
+        # ----------------------------------------------------------------------
+        # ¿POR QUÉ USAR IMAGEN YA CONSTRUIDA?
+        # ======================================
+        # En desarrollo, construimos cada vez (build context).
+        # En producción:
+        # - Construimos la imagen una vez (en CI/CD)
+        # - La subimos a un registry (Docker Hub, ECR, GCR, etc.)
+        # - Los servidores la descargan (pull)
+        #
+        # Ventajas:
+        # - Despliegues instantáneos (solo pull, no build)
+        # - Versiones controladas (exactamente la misma imagen)
+        # - Rollbacks fáciles (bajar a versión anterior)
+        # ----------------------------------------------------------------------
+        
+        container_name: mcp-hub-prod
+        restart: always
+        # ----------------------------------------------------------------------
+        # always: SIEMPRE reiniciar, incluso después de apagado
+        # ----------------------------------------------------------------------
+        # En producción, queremos máxima disponibilidad.
+        # Si el servidor se reinicia, el servicio debe volver.
+        #
+        # ¿CUÁNDO USAR always VS unless-stopped?
+        # =========================================
+        # always:
+        # - Si el host se reinicia (actualización del SO), el contenedor reinicia
+        # - Si hacemos docker stop, el contenedor se detiene (se ignora always)
+        #
+        # unless-stopped:
+        # - Similar a always, pero respeta paradas manuales
+        # - Útil para mantenimiento controlado
+        #
+        # Usamos always porque en producción queremos máxima uptime.
+        # ----------------------------------------------------------------------
+        
+        ports:
+            - "8080:8080"  # API REST
+            - "8000:8000"  # Protocolo MCP
+            - "8081:8081"  # Gateway WebSocket
+        
+        volumes:
+            # ----------------------------------------------------------------------
+            # CONFIGURACIÓN - Montaje read-only
+            # ----------------------------------------------------------------------
+            # ----------------------------------------------------------------------
+            # ¿POR QUÉ MONTAR SOLO servers.json EN VEZ DE ./config:ro?
+            # ============================================================
+            # - Más explícito: Sabemos exactamente qué archivo se está usando
+            # - Menor riesgo: Evita montar archivos innecesarios
+            # - Mejor seguridad: Solo exponemos el archivo necesario
+            # ----------------------------------------------------------------------
+            - ./config/servers.json:/app/config/servers.json:ro
+            
+            # ----------------------------------------------------------------------
+            # DATOS Y LOGS - Volúmenes persistentes
+            # ----------------------------------------------------------------------
+            - mcp-hub-prod-data:/app/data
+            - mcp-hub-prod-logs:/app/logs
+        
+        environment:
+            # ----------------------------------------------------------------------
+            # Variables de entorno de producción
+            # ----------------------------------------------------------------------
+            - MCP_HUB_CONFIG=/app/config/servers.json
+            - MCP_HUB_PLUGINS_DIR=/app/plugins
+            - LOG_LEVEL=INFO
+            # ----------------------------------------------------------------------
+            # ¿POR QUÉ INFO EN VEZ DE DEBUG?
+            # ====================================
+            # - DEBUG: Muestra TODOS los detalles (muy verboso)
+            #           - Consumo excesivo de CPU por logs
+            #           - Riesgo de exponer información sensible
+            # - INFO:  Solo eventos importantes
+            #           - Suficiente para debugging de producción
+            #           - Buen balance de verbosidad
+            # - ERROR: Solo errores (demasiado silencioso para debugging)
+            # ----------------------------------------------------------------------
+        
+        networks:
+            - mcp-hub-prod-network
+        
+        # ----------------------------------------------------------------------
+        # DEPLOY - Configuración de despliegue (recursos)
+        # ----------------------------------------------------------------------
+        # ----------------------------------------------------------------------
+        # ¿QUÉ ES DEPLOY?
+        # =================
+        # Es una especificación de recursos y límites para el contenedor.
+        # Funciona con Docker Swarm, Kubernetes, o simplemente docker-compose.
+        #
+        # ¿POR QUÉ ES IMPORTANTE EN PRODUCCIÓN?
+        # ===========================================
+        # - Prevenir que un contenedor se coma TODOS los recursos del servidor
+        # - Garantizar que cada contenedor tenga recursos suficientes
+        # - Permitir múltiples contenedores en el mismo host
+        # ----------------------------------------------------------------------
+        deploy:
+            # ----------------------------------------------------------------------
+            # LIMITES DE RECURSOS - El contenedor NO puede exceder estos límites
+            # ----------------------------------------------------------------------
+            resources:
+                limits:
+                    # ----------------------------------------------------------------------
+                    # cpus: Número máximo de CPUs que puede usar
+                    # ----------------------------------------------------------------------
+                    # - "1.0": 1 CPU completo (100% de un core)
+                    # - "0.5": 0.5 CPUs (50% de un core)
+                    #
+                    # ¿POR QUÉ LIMITAR CPUS?
+                    # =============================
+                    # - Prevenir que un contenedor con bugs use el 100% de todas las CPUs
+                    # - Permitir que otros contenedores tengan CPU disponible
+                    # - Controlar costos en cloud (cobran por vCPU)
+                    # ----------------------------------------------------------------------
+                    cpus: '1.0'
+                    
+                    # ----------------------------------------------------------------------
+                    # memory: Máximo de RAM que puede usar
+                    # ----------------------------------------------------------------------
+                    # - "512M": 512 Megabytes
+                    # - "1G": 1 Gigabyte
+                    # - "512Mi": 512 Mebibytes (preciso)
+                    #
+                    # ¿POR QUÉ LIMITAR MEMORIA?
+                    # =================================
+                    # - Prevenir memory leaks que llenan toda la RAM del servidor
+                    # - Permitir que otros contenedores tengan memoria disponible
+                    # - Prevenir OOM (Out Of Memory) del host
+                    #
+                    # ¿QUÉ PASA SI EL CONTENEDOR EXCEDE LA MEMORIA?
+                    # ====================================================
+                    # - Linux envía señal SIGKILL al contenedor
+                    # - El contenedor se mata sin oportunidad de cerrar graciosamente
+                    # - El contenedor se reinicia (según política restart)
+                    # ----------------------------------------------------------------------
+                    memory: 512M
+            
+            # ----------------------------------------------------------------------
+            # RESERVAS DE RECURSOS - El contenedor GARANTIZADO tendrá estos recursos
+            # ----------------------------------------------------------------------
+            # ----------------------------------------------------------------------
+            # ¿POR QUÉ RESERVAR RECURSOS?
+            # ===============================
+            # - Asegurar que el contenedor SIEMPRE tenga suficientes recursos para funcionar
+            # - Prevenir que el contenedor se "sufoque" si el host está sobrecargado
+            # ----------------------------------------------------------------------
+            reservations:
+                cpus: '0.5'
+                    # - Garantiza al menos 0.5 CPUs (50% de un core)
+                memory: 256M
+                    # - Garantiza al menos 256MB de RAM
+        
+        # ----------------------------------------------------------------------
+        # HEALTH CHECK
+        # ----------------------------------------------------------------------
+        healthcheck:
+            test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
+            # ----------------------------------------------------------------------
+            # start_period: Tiempo de gracia al iniciar
+            # ----------------------------------------------------------------------
+            # ¿POR QUÉ 10s?
+            # ==============
+            # - La aplicación necesita tiempo para iniciar completamente
+            # - Iniciar significa: cargar config, conectar DB, inicializar servicios
+            # - Durante este tiempo, los health checks fallan pero NO cuentan
+            #
+            # ¿QUÉ PASA DESPUÉS DEL start_period?
+            # ==========================================
+            # - Los health checks empiezan a contar
+            # - Si fallan 3 veces seguidas (retries), el contenedor se marca unhealthy
+            # - Si el contenedor está unhealthy, dependiendo de políticas, se puede reiniciar
+            # ----------------------------------------------------------------------
+    
+    # --------------------------------------------------------------------------
+    # SERVICIO: PostgreSQL de Producción (Opcional - Perfil postgres)
+    # --------------------------------------------------------------------------
+    postgres:
+        container_name: mcp-hub-postgres-prod
+        image: postgres:16-alpine
+        # ----------------------------------------------------------------------
+        # ¿POR QUÉ ALPINE EN PRODUCCIÓN?
+        # ====================================
+        # - Imagen más pequeña (~200MB vs ~400MB)
+        # - Menor superficie de ataque (menos paquetes del sistema)
+        # - Misma funcionalidad (es PostgreSQL completo)
+        # ----------------------------------------------------------------------
+        restart: always
+            # Máxima disponibilidad para la base de datos
+        
+        ports:
+            - "5432:5432"
+        
+        environment:
+            # ----------------------------------------------------------------------
+            # CREDENCIALES DESDE VARIABLES DE ENTORNO DEL HOST
+            # ----------------------------------------------------------------------
+            # ----------------------------------------------------------------------
+            # ¿POR QUÉ ${VARIABLE} SIN VALOR POR DEFECTO?
+            # =============================================
+            # - En producción, las credenciales DEBEN venir de variables de entorno
+            #   (secrets manager, vault, k8s secrets, etc.)
+            # - NO queremos valores por defecto en producción (security risk)
+            # - Si ${POSTGRES_USER} no está definida, el compose fallará al iniciar
+            #   (FAIL FAST: mejor fallar al inicio que usar credenciales inseguras)
+            # ----------------------------------------------------------------------
+            - POSTGRES_USER=${POSTGRES_USER}
+            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            - POSTGRES_DB=${POSTGRES_DB}
+        
+        volumes:
+            - postgres-prod-data:/var/lib/postgresql/data
+        
+        networks:
+            - mcp-hub-prod-network
+        
+        # ----------------------------------------------------------------------
+        # DEPLOY - Límites de recursos para PostgreSQL
+        # ----------------------------------------------------------------------
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                        # PostgreSQL es más eficiente que Python (CPU)
+                        # Necesita menos CPU para la misma carga de trabajo
+                    memory: 256M
+                        # PostgreSQL usa memoria eficientemente (cache de queries)
+                        # 256MB es suficiente para carga moderada
+                
+                reservations:
+                    cpus: '0.25'
+                    memory: 128M
+        
+        profiles:
+            - postgres
+
+# ----------------------------------------------------------------------------
+# VOLÚMENES DE PRODUCCIÓN
+# ----------------------------------------------------------------------------
+volumes:
+    mcp-hub-prod-data:
+        driver: local
+    
+    mcp-hub-prod-logs:
+        driver: local
+    
+    postgres-prod-data:
+        driver: local
+
+# ----------------------------------------------------------------------------
+# RED DE PRODUCCIÓN
+# ----------------------------------------------------------------------------
+networks:
+    mcp-hub-prod-network:
+        driver: bridge
+        ipam:
+            driver: default
+            config:
+                - subnet: 172.30.0.0/16
+                    # Subred específica de producción
+                    # Separada de desarrollo y pruebas

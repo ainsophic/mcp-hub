@@ -1,0 +1,69 @@
+{
+  "version": "1.0.0",
+  "tenants": {
+    "default": {
+      "description": "Tenant por defecto para desarrollo",
+      "servers": {
+        "sqlite-demo": {
+          "name": "sqlite-demo",
+          "type": "database",
+          "command": "python",
+          "args": ["-m", "mcp.server.sqlite", "--db-path", "./data/demo.db"],
+          "enabled": true,
+          "capabilities": ["tools", "resources"],
+          "transport": "stdio",
+          "metadata": {
+            "description": "Servidor MCP SQLite de ejemplo",
+            "author": "MCP Team"
+          }
+        }
+      }
+    },
+    "production": {
+      "description": "Tenant para entorno de producción",
+      "servers": {
+        "postgres-prod": {
+          "name": "postgres-prod",
+          "type": "database",
+          "command": "python",
+          "args": ["-m", "mcp.server.postgres", "--connection-string", "${DATABASE_URL}"],
+          "enabled": false,
+          "capabilities": ["tools", "resources"],
+          "transport": "stdio",
+          "metadata": {
+            "description": "Servidor MCP PostgreSQL para producción",
+            "author": "Ainsophic"
+          }
+        },
+        "github-integration": {
+          "name": "github-integration",
+          "type": "api",
+          "command": "python",
+          "args": ["-m", "mcp.server.github", "--token", "${GITHUB_TOKEN}"],
+          "enabled": false,
+          "capabilities": ["tools"],
+          "transport": "stdio",
+          "metadata": {
+            "description": "Integración con GitHub API",
+            "author": "Ainsophic"
+          }
+        }
+      }
+    }
+  },
+  "gateway": {
+    "port": 8080,
+    "mcp_port": 8000,
+    "websocket_port": 8081,
+    "host": "0.0.0.0"
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  },
+  "orchestrator": {
+    "auto_start": false,
+    "max_retries": 3,
+    "startup_timeout": 30
+  }
+}

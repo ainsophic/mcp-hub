@@ -1,0 +1,410 @@
+# ============================================================================
+# Docker Compose Principal - MCP Hub
+# ============================================================================
+# Autor: Equipo Ainsophic
+# Enfoque: Orquestación de servicios principal
+#
+# CONCEPTO FEYNMAN - Docker Compose:
+# ------------------------------------
+# Imagina que estás organizando una fiesta y tienes varios ayudantes:
+# - Uno prepara la comida (aplicación)
+# - Otro sirve las bebidas (base de datos)
+# - Otro limpia (volumenes de logs)
+#
+# Docker Compose es como el coordinador de la fiesta que:
+# - Le dice a cada ayudante qué hacer
+# - Define cómo se comunican entre sí
+# - Asegura que todo comience y termine en el orden correcto
+#
+# RESULTADO: Puedes iniciar TODO con un solo comando:
+#           "docker-compose up"
+# ============================================================================
+
+version: '3.8'
+
+# ----------------------------------------------------------------------------
+# SERVICIOS
+# ----------------------------------------------------------------------------
+# Cada servicio es un contenedor que ejecuta algo específico.
+# Servicios pueden depender entre sí (depends_on), compartir redes,
+# montar volúmenes, y acceder a variables de entorno.
+# ----------------------------------------------------------------------------
+
+services:
+    # --------------------------------------------------------------------------
+    # SERVICIO: MCP Hub (Principal)
+    # --------------------------------------------------------------------------
+    # Este es el servicio principal de la aplicación.
+    # Contiene el orquestador MCP Hub y todas sus funcionalidades.
+    # --------------------------------------------------------------------------
+    mcp-hub:
+        # ------------------------------------------------------------------------
+        # CONFIGURACIÓN DE CONSTRUCCIÓN
+        # ------------------------------------------------------------------------
+        build:
+            # ----------------------------------------------------------------------
+            # context: Directorio donde buscar el Dockerfile
+            # ----------------------------------------------------------------------
+            # El punto (.) significa "directorio actual"
+            # Docker buscará Dockerfile en ./Dockerfile
+            context: .
+            
+            # ----------------------------------------------------------------------
+            # dockerfile: Nombre del archivo Docker a usar
+            # ----------------------------------------------------------------------
+            # Usamos Dockerfile (producción) en lugar de Dockerfile.dev
+            # porque este compose es para despliegues serios.
+            dockerfile: Dockerfile
+        
+        # ------------------------------------------------------------------------
+        # CONFIGURACIÓN DE IDENTIFICACIÓN
+        # ------------------------------------------------------------------------
+        container_name: mcp-hub
+        # Nombre fijo del contenedor (en lugar de uno generado aleatoriamente)
+        # Útil para:
+        # - Saber siempre el nombre al hacer docker logs
+        # - Referenciar en otros servicios (si se usan enlaces)
+        # - Simplificar debugging
+        
+        image: mcp-hub:0.1.0
+        # Nombre y versión de la imagen después de construir
+        # Formato: nombre:tag
+        # Útil para:
+        # - Saber qué versión se está ejecutando
+        # - Push/pull a registry de Docker
+        
+        # ------------------------------------------------------------------------
+        # POLÍTICA DE REINICIO
+        # ------------------------------------------------------------------------
+        restart: unless-stopped
+        # ----------------------------------------------------------------------
+        # Valores posibles:
+        # - no: No reiniciar automáticamente
+        # - always: Siempre reiniciar (incluso en apagado normal)
+        # - on-failure: Reiniciar solo si falla con código de error
+        # - unless-stopped: Reiniciar siempre excepto si se detiene manualmente
+        #
+        # ¿POR QUÉ unless-stopped?
+        # ===============================
+        # Es el balance perfecto:
+        # - Reinicia automáticamente si falla (recupera de crashes)
+        # - No reinicia si hacemos "docker-compose stop" (permite mantenimiento)
+        # ----------------------------------------------------------------------
+        
+        # ------------------------------------------------------------------------
+        # MAPEO DE PUERTOS
+        # ------------------------------------------------------------------------
+        ports:
+            # ----------------------------------------------------------------------
+            # Sintaxis: "HOST:CONTENEDOR"
+            # - HOST: Puerto en tu computadora
+            # - CONTENEDOR: Puerto dentro del contenedor
+            #
+            # Ejemplo: "8080:8080"
+            # - El contenedor escucha en puerto 8080 (definido en Dockerfile)
+            # - Accesible desde tu computadora en http://localhost:8080
+            # ----------------------------------------------------------------------
+            - "8080:8080"  # API REST - Para llamadas HTTP
+            - "8000:8000"  # Protocolo MCP - Para clientes MCP directos
+            - "8081:8081"  # Gateway WebSocket - Para MCP Apps en tiempo real
+        
+        # ------------------------------------------------------------------------
+        # VOLÚMENES - Persistencia de datos
+        # ------------------------------------------------------------------------
+        volumes:
+            # ----------------------------------------------------------------------
+            # Sintaxis: "HOST:CONTENEDOR:OPCIONES"
+            # ----------------------------------------------------------------------
+            
+            # ----------------------------------------------------------------------
+            # Configuración: Montaje read-only (ro)
+            # ----------------------------------------------------------------------
+            # Mapeamos el directorio config local al contenedor.
+            #
+            # ¿POR QUÉ READ-ONLY (RO)?
+            # ============================
+            # La aplicación SOLO necesita leer la configuración,
+            # NO modificarla.
+            #
+            # Ventajas de RO:
+            # - Seguridad: La app no puede corromper su configuración
+            # - Claridad: Si quieres cambiar config, cambias en el host,
+            #            no dentro del contenedor
+            # - Prevenir errores accidentales: Bugs que escriben archivos
+            #                        fallarán en lugar de corromper config
+            # ----------------------------------------------------------------------
+            - ./config:/app/config:ro
+            
+            # ----------------------------------------------------------------------
+            # Datos: Volumen persistente para datos de la aplicación
+            # ----------------------------------------------------------------------
+            # Este volumen guarda bases de datos SQLite, cachés, etc.
+            #
+            # ¿POR QUÉ USAR VOLÚMEN EN VEZ DE BIND MOUNTS?
+            # =================================================
+            # Volumen (mcp-hub-data):
+            # - Almacenado por Docker en su propia ubicación
+            # - Más portable entre sistemas
+            # - Mejor rendimiento (bypass de capa de archivos del host)
+            # - Administrado por Docker (docker volume ls, rm, etc.)
+            #
+            # Bind mount (./data:/app/data):
+            # - Directorio en tu computadora
+            # - Fácil de ver y editar archivos manualmente
+            # - Útil para desarrollo
+            # ----------------------------------------------------------------------
+            - mcp-hub-data:/app/data
+            
+            # ----------------------------------------------------------------------
+            # Logs: Volumen persistente para logs
+            # ----------------------------------------------------------------------
+            # Similar a datos, pero específico para logs.
+            # Útil para:
+            # - Ver logs fuera del contenedor
+            # - Retener logs después de destruir el contenedor
+            # - Analizar logs con herramientas externas
+            # ----------------------------------------------------------------------
+            - mcp-hub-logs:/app/logs
+        
+        # ------------------------------------------------------------------------
+        # VARIABLES DE ENTORNO
+        # ------------------------------------------------------------------------
+        environment:
+            # ----------------------------------------------------------------------
+            # Variables que la aplicación necesita para ejecutarse.
+            # Reemplazan valores por defecto definidos en Dockerfile.
+            # ----------------------------------------------------------------------
+            - MCP_HUB_CONFIG=/app/config/servers.json
+            # Ruta al archivo de configuración dentro del contenedor
+            # ----------------------------------------------------------------------
+            - MCP_HUB_PLUGINS_DIR=/app/plugins
+            # Directorio donde buscar plugins MCP
+            # ----------------------------------------------------------------------
+        
+        # ------------------------------------------------------------------------
+        # REDES
+        # ------------------------------------------------------------------------
+        networks:
+            - mcp-hub-network
+            # Red privada donde viven todos los servicios.
+            # Los servicios pueden comunicarse por nombre:
+            # mcp-hub puede hablar con postgres usando hostname: postgres
+            # ----------------------------------------------------------------------
+        
+        # ------------------------------------------------------------------------
+        # HEALTH CHECK
+        # ------------------------------------------------------------------------
+        healthcheck:
+            # ----------------------------------------------------------------------
+            # test: Comando para verificar salud
+            # ----------------------------------------------------------------------
+            # Usamos el script de healthcheck que creamos.
+            # También podríamos usar el comando inline del Dockerfile.
+            test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+            
+            # ----------------------------------------------------------------------
+            # interval: Tiempo entre verificaciones
+            # ----------------------------------------------------------------------
+            # Cada 30 segundos, Docker ejecutará el health check
+            interval: 30s
+            
+            # ----------------------------------------------------------------------
+            # timeout: Tiempo máximo que el health check puede tardar
+            # ----------------------------------------------------------------------
+            # Si toma más de 10 segundos, se considera fallido
+            timeout: 10s
+            
+            # ----------------------------------------------------------------------
+            # retries: Número de fallos consecutivos antes de marcar unhealthy
+            # ----------------------------------------------------------------------
+            # Si falla 3 veces seguidas, el contenedor se marca unhealthy
+            retries: 3
+            
+            # ----------------------------------------------------------------------
+            # start_period: Tiempo de gracia al iniciar
+            # ----------------------------------------------------------------------
+            # Durante los primeros 10 segundos después de iniciar,
+            # los fallos del health check NO cuentan.
+            # Esto da tiempo a la aplicación para iniciar completamente.
+            start_period: 10s
+
+    # --------------------------------------------------------------------------
+    # SERVICIO: PostgreSQL (Opcional - Perfil postgres)
+    # --------------------------------------------------------------------------
+    # Base de datos PostgreSQL para servidores MCP que requieren
+    # una base de datos persistente.
+    # --------------------------------------------------------------------------
+    postgres:
+        # ------------------------------------------------------------------------
+        # CONFIGURACIÓN DE IDENTIFICACIÓN
+        # ------------------------------------------------------------------------
+        container_name: mcp-hub-postgres
+        image: postgres:16-alpine
+        # Imagen oficial de PostgreSQL versión 16 en variante Alpine
+        # Alpine es mucho más pequeña que la imagen estándar
+        
+        restart: unless-stopped
+        
+        # ------------------------------------------------------------------------
+        # MAPEO DE PUERTOS
+        # ------------------------------------------------------------------------
+        ports:
+            - "5432:5432"
+            # Puerto estándar de PostgreSQL
+            # Accesible desde el host en localhost:5432
+            # Útil para conectar herramientas de desarrollo
+        
+        # ------------------------------------------------------------------------
+        # VARIABLES DE ENTORNO (Configuración de PostgreSQL)
+        # ------------------------------------------------------------------------
+        environment:
+            # ----------------------------------------------------------------------
+            # Usuario de PostgreSQL
+            # ----------------------------------------------------------------------
+            # ${POSTGRES_USER:-mcpuser} significa:
+            # - Usa la variable POSTGRES_USER del host si existe
+            # - Si no existe, usa el valor por defecto: mcpuser
+            # ----------------------------------------------------------------------
+            - POSTGRES_USER=${POSTGRES_USER:-mcpuser}
+            
+            # ----------------------------------------------------------------------
+            # Contraseña de PostgreSQL (OBLIGATORIA en la imagen oficial)
+            # ----------------------------------------------------------------------
+            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mcppassword}
+            
+            # ----------------------------------------------------------------------
+            # Nombre de la base de datos
+            # ----------------------------------------------------------------------
+            - POSTGRES_DB=${POSTGRES_DB:-mcpdb}
+        
+        # ------------------------------------------------------------------------
+        # VOLÚMENES
+        # ------------------------------------------------------------------------
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+            # Datos persistentes de PostgreSQL
+            # /var/lib/postgresql/data es el directorio donde PostgreSQL
+            # guarda todas las bases de datos y configuraciones
+        
+        # ------------------------------------------------------------------------
+        # REDES
+        # ------------------------------------------------------------------------
+        networks:
+            - mcp-hub-network
+            # En la misma red que mcp-hub, pueden comunicarse
+        
+        # ------------------------------------------------------------------------
+        # PROFILES
+        # ------------------------------------------------------------------------
+        # ----------------------------------------------------------------------
+        # ¿QUÉ ES UN PROFILE?
+        # ===================
+        # Los profiles permiten agrupar servicios que pueden iniciarse
+        # opcionalmente.
+        #
+        # Ejemplos de uso:
+        # - docker-compose up (solo servicios sin profile)
+        # - docker-compose --profile postgres up (incluye postgres)
+        # - docker-compose --profile postgres --profile redis up (incluye ambos)
+        #
+        # ¿POR QUÉ USAR PROFILES?
+        # ===========================
+        # - Flexibilidad: Inicia solo lo que necesitas
+        # - Desarrollo: Corre sin postgres (usa SQLite)
+        # - Producción: Corre con postgres (base de datos real)
+        # ----------------------------------------------------------------------
+        profiles:
+            - postgres
+
+    # --------------------------------------------------------------------------
+    # SERVICIO: Redis (Opcional - Perfil redis)
+    # --------------------------------------------------------------------------
+    # Redis para caché y message bus (futuro uso)
+    # --------------------------------------------------------------------------
+    redis:
+        container_name: mcp-hub-redis
+        image: redis:7-alpine
+        restart: unless-stopped
+        
+        ports:
+            - "6379:6379"
+            # Puerto estándar de Redis
+        
+        volumes:
+            - redis-data:/data
+            # Datos persistentes de Redis
+        
+        networks:
+            - mcp-hub-network
+        
+        profiles:
+            - redis
+
+# ----------------------------------------------------------------------------
+# VOLÚMENES - Definición de volúmenes persistentes
+# ----------------------------------------------------------------------------
+# Aquí definimos los volúmenes que usan los servicios.
+# Esto permite que los datos persistan aunque los contenedores se destruyan.
+# ----------------------------------------------------------------------------
+volumes:
+    # --------------------------------------------------------------------------
+    # Volumen: Datos del MCP Hub
+    # --------------------------------------------------------------------------
+    mcp-hub-data:
+        driver: local
+        # Local: Los datos se guardan en el disco del host
+        # Docker elige la ubicación automáticamente
+        # (generalmente /var/lib/docker/volumes/...)
+    
+    # --------------------------------------------------------------------------
+    # Volumen: Logs del MCP Hub
+    # --------------------------------------------------------------------------
+    mcp-hub-logs:
+        driver: local
+    
+    # --------------------------------------------------------------------------
+    # Volumen: Datos de PostgreSQL
+    # --------------------------------------------------------------------------
+    postgres-data:
+        driver: local
+    
+    # --------------------------------------------------------------------------
+    # Volumen: Datos de Redis
+    # --------------------------------------------------------------------------
+    redis-data:
+        driver: local
+
+# ----------------------------------------------------------------------------
+# REDES - Definición de redes
+# ----------------------------------------------------------------------------
+# Las redes permiten que los contenedores se comuniquen entre sí.
+# Todos los servicios en la misma red pueden hablarse por nombre.
+# ----------------------------------------------------------------------------
+networks:
+    # --------------------------------------------------------------------------
+    # Red: mcp-hub-network
+    # --------------------------------------------------------------------------
+    mcp-hub-network:
+        driver: bridge
+        # ----------------------------------------------------------------------
+        # ¿QUÉ ES DRIVER BRIDGE?
+        # =========================
+        # Es el driver de red por defecto de Docker.
+        # Crea una red privada para los contenedores en el host.
+        #
+        # Características:
+        # - Los contenedores pueden comunicarse entre sí
+        # - Los contenedores NO pueden acceder a contenedores en otras redes
+        # - El host puede acceder a los contenedores (si puertos están mapeados)
+        # ----------------------------------------------------------------------
+        # Usamos IPAM (IP Address Management) por defecto:
+        # Docker elige automáticamente una subred IP privada
+        # y asigna direcciones a cada contenedor.
+        # ----------------------------------------------------------------------
+        ipam:
+            driver: default
+            config:
+                - subnet: 172.28.0.0/16
+                    # Subred IP específica para esta red
+                    # 172.28.0.0/16 significa: IPs de 172.28.0.0 a 172.28.255.255
+                    # Más de 65,000 IPs disponibles (más que suficiente)

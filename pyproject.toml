@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-hub"
+version = "0.1.0"
+description = "Orquestador multitenant para servidores MCP y MCP Apps"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Ainsophic", email = "dev@ainsophic.com"}
+]
+keywords = ["mcp", "model-context-protocol", "orchestrator", "multitenant"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: FastAPI",
+    "Framework :: AsyncIO",
+]
+
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "mcp>=1.0.0",
+    "fastmcp>=0.1.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "websockets>=12.0",
+    "aiofiles>=23.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.12.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+    "httpx>=0.26.0",
+]
+
+[project.scripts]
+mcp-hub = "mcp_hub.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

@@ -614,4 +614,4 @@ Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](L
 
 **Construido con ❤️ por Ainsophic Team**
 
-*Guiados por el espíritu de Dennis Ritchie y Guido van Rossum*
+*Ainsophic Foundation*
